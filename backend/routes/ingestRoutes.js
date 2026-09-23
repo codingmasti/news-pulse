@@ -1,104 +1,100 @@
 const express = require("express");
-const { spawn } = require("child_process");
-const path = require("path");
 const crypto = require("crypto");
 
 const router = express.Router();
 
 const jobs = new Map();
 
+// Render Python scraper service
+const SCRAPER_URL = process.env.SCRAPER_URL;
 
-// Starts the Python ingestion pipeline.
+
+// Starts the Python ingestion pipeline
 router.post("/trigger", async (req, res) => {
-  // Generate a unique ID for this ingestion job
   const jobId = crypto.randomUUID();
 
-  // Mark the job as running
   jobs.set(jobId, {
-    jobId: jobId,
+    jobId,
     status: "running",
     startedAt: new Date(),
     finishedAt: null,
     error: null,
   });
 
-  // Path to the Python executable inside our scraper venv
-  const pythonPath = path.join(__dirname, "../../scraper/venv/Scripts/python.exe")
+  try {
+    const response = await fetch(`${SCRAPER_URL}/run`, {
+      method: "POST",
+    });
 
-  // Path to the Python ingestion script
-  const scriptPath = path.join(
-    __dirname, "../../scraper/run_pipeline.py"
-  )
+    const responseText = await response.text();
 
-  //start python porcess
-  // Start Python process
-    const pythonProcess = spawn(
-        pythonPath,
-        [scriptPath]
-    );
+    let data;
 
-    //Collect python error
-    let errorOutput = ""
-    pythonProcess.stderr.on("data", (data)=>{
-        errorOutput += data.toString()
-    })
-
-    //Python process compleated
-    pythonProcess.on("close", (code)=>{
-        const job = jobs.get(jobId);
-
-        if(!job) return;
-
-        job.finishedAt = new Date()
-
-        if(code === 0){
-            job.status = "completed"
-            job.error = null
-        }else{
-            job.status = "failed", 
-            job.error = errorOutput || "python process failed"
-        }
-        jobs.set(jobId, job)
-    })
-
-     // Return job ID immediately.
-    // The frontend can use this ID to check the status.
-     return res.status(202).json({
-        success: true,
-        message : "Ingestion started", 
-        jobId : jobId
-     })
-
-});
-
-
-// GET /ingest/status/:jobId
-// Returns the current status of an ingestion job.
-
-router.get("/status/:jobId", (req, res)=>{
-    //get job id from the url
-    const {jobId} = req.params;
-
-    // Find the job from our in-memory jobs Map
-    const job = jobs.get(jobId)
-
-    //If jobId dose not exist 
-    if(!job){
-        return res.status(404).json({
-            success: false,
-            message:"job not found"
-        })
+    try {
+      data = JSON.parse(responseText);
+    } catch (error) {
+      throw new Error(
+        `Python service returned invalid JSON: ${responseText.substring(0, 200)}`,
+      );
     }
 
-    //return current job information
-    return res.status(202).json({
-        success: true,
-        data: job
-    })
-})
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || "Scraper service failed");
+    }
 
+    const job = jobs.get(jobId);
+
+    if (job) {
+      job.status = "completed";
+      job.finishedAt = new Date();
+      job.error = null;
+      jobs.set(jobId, job);
+    }
+
+    return res.status(202).json({
+      success: true,
+      message: "Ingestion completed successfully",
+      jobId,
+    });
+  } catch (error) {
+    const job = jobs.get(jobId);
+
+    if (job) {
+      job.status = "failed";
+      job.finishedAt = new Date();
+      job.error = error.message;
+      jobs.set(jobId, job);
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: "Ingestion failed",
+      jobId,
+      error: error.message,
+    });
+  }
+});
+
+// GET /ingest/status/:jobId
+router.get("/status/:jobId", (req, res) => {
+  const { jobId } = req.params;
+
+  const job = jobs.get(jobId);
+
+  if (!job) {
+    return res.status(404).json({
+      success: false,
+      message: "Job not found",
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    data: job,
+  });
+});
 
 module.exports = {
-    router,
-    jobs
-}
+  router,
+  jobs,
+};
