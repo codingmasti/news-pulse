@@ -39,21 +39,32 @@ async function runScraper(jobId) {
 
     const controller = new AbortController();
 
-    const timeout = setTimeout(
-      () => {
-        controller.abort();
-      },
-      10 * 60 * 1000,
-    );
+    const timeout = setTimeout(() => {
+      controller.abort();
+    }, 10 * 60 * 1000);
 
-    const response = await fetch(`${SCRAPER_URL}/run`, {
-      method: "POST",
-      signal: controller.signal,
-    });
+    let response;
 
-    clearTimeout(timeout);
+    try {
+      response = await fetch(`${SCRAPER_URL}/run`, {
+        method: "POST",
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
 
     const responseText = await response.text();
+
+    // Handle HTTP errors before trying to parse JSON
+    if (!response.ok) {
+      throw new Error(
+        `Python scraper returned HTTP ${response.status}: ${responseText.substring(
+          0,
+          200
+        )}`
+      );
+    }
 
     let data;
 
@@ -63,12 +74,12 @@ async function runScraper(jobId) {
       throw new Error(
         `Python service returned invalid JSON: ${responseText.substring(
           0,
-          200,
-        )}`,
+          200
+        )}`
       );
     }
 
-    if (!response.ok || !data.success) {
+    if (!data.success) {
       throw new Error(data.error || "Scraper service failed");
     }
 
@@ -78,7 +89,6 @@ async function runScraper(jobId) {
       job.status = "completed";
       job.finishedAt = new Date();
       job.error = null;
-
       jobs.set(jobId, job);
     }
   } catch (error) {
@@ -87,13 +97,15 @@ async function runScraper(jobId) {
     if (job) {
       job.status = "failed";
       job.finishedAt = new Date();
-      job.error = error.message;
+      job.error =
+        error.name === "AbortError"
+          ? "Scraper request timed out after 10 minutes"
+          : error.message;
 
       jobs.set(jobId, job);
     }
   }
 }
-
 router.get("/status/:jobId", (req, res) => {
   const { jobId } = req.params;
 
