@@ -68,18 +68,15 @@ def main():
     print(f"\nSaved articles: {saved_count}")
 
     # Run clustering only when new articles were added.
-    if saved_count > 0:
-        print("\nNew articles detected. Running clustering...")
+    print("\nRunning clustering...")
 
-        cluster_output = run_script("save_clusters.py")
+cluster_output = run_script("save_clusters.py")
 
-        if cluster_output is None:
-            print("Clustering failed.")
-            sys.exit(1)
+if cluster_output is None:
+    print("Clustering failed.")
+    sys.exit(1)
 
-        print("\nClustering completed successfully.")
-    else:
-        print("\nNo new articles. Skipping clustering.")
+    print("\nClustering completed successfully.")
 
     print("\n" + "=" * 60)
     print("NEWS PULSE PIPELINE COMPLETED SUCCESSFULLY")
