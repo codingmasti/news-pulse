@@ -37,9 +37,21 @@ async function runScraper(jobId) {
       throw new Error("SCRAPER_URL environment variable is not configured");
     }
 
+    const controller = new AbortController();
+
+    const timeout = setTimeout(
+      () => {
+        controller.abort();
+      },
+      10 * 60 * 1000,
+    );
+
     const response = await fetch(`${SCRAPER_URL}/run`, {
       method: "POST",
+      signal: controller.signal,
     });
+
+    clearTimeout(timeout);
 
     const responseText = await response.text();
 
@@ -51,8 +63,8 @@ async function runScraper(jobId) {
       throw new Error(
         `Python service returned invalid JSON: ${responseText.substring(
           0,
-          200
-        )}`
+          200,
+        )}`,
       );
     }
 
